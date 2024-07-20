@@ -1,60 +1,82 @@
 #%% Import Libraries
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.datasets import fetch_california_housing
-from sklearn.linear_model import LinearRegression
-import numpy as np
 import pandas as pd
-from statsmodels.stats.stattools import durbin_watson
-from scipy.stats import shapiro
+import numpy as np
 import statsmodels.api as sm
+import scipy.stats as stats
 
-#%% Load dataset
-housing = fetch_california_housing()
-X = pd.DataFrame(housing.data, columns=housing.feature_names)
-y = housing.target
+#%% Load the Auto MPG dataset
+data = sm.datasets.get_rdataset("mtcars").data
 
-#%% Fit linear model
-model = LinearRegression()
-model.fit(X, y)
+# Prepare the data
+X = data.drop(columns=['mpg'])
+y = data['mpg']
 
-#%% Predicted values
-y_pred = model.predict(X)
-residuals = y - y_pred
+# Add a constant to the model (intercept)
+X = sm.add_constant(X)
 
-#%% Linearity Assumption
-fig, axes = plt.subplots(nrows=2, ncols=4, figsize=(15, 10))
+#%% Fit the linear model
+model = sm.OLS(y, X).fit()
+
+# Print the model summary
+print(model.summary())
+
+#%% Get the residuals and fitted values
+residuals = model.resid
+fitted_values = model.fittedvalues
+
+# Standardized residuals
+influence = model.get_influence()
+standardized_residuals = influence.resid_studentized_internal
+
+# Leverage values
+leverage = influence.hat_matrix_diag
+
+#%% 1. Linearity Assumption
+fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(15, 10))
 for i, ax in enumerate(axes.flatten()):
-    if i < len(X.columns):
-        ax.scatter(X.iloc[:, i], residuals)
-        ax.set_xlabel(X.columns[i])
-        ax.set_ylabel('Residuals')
+    if i < len(X.columns) - 1:  # Exclude the constant term
+        sns.scatterplot(x=X.iloc[:, i + 1], y=standardized_residuals, ax=ax)
+        ax.set_xlabel(X.columns[i + 1])  # Skip constant column
+        ax.set_ylabel('Standardized Residuals')
         ax.axhline(0, color='r', linestyle='--')
 plt.tight_layout()
 plt.show()
 
-#%% Constant Variance Assumption
-plt.scatter(y_pred, residuals)
+#%% 2. Constant Variance Assumption
+plt.scatter(fitted_values, standardized_residuals)
 plt.axhline(0, color='r', linestyle='--')
-plt.xlabel('Predicted values')
-plt.ylabel('Residuals')
+plt.xlabel('Fitted values')
+plt.ylabel('Standardized Residuals')
 plt.title('Homoscedasticity Check')
 plt.show()
 
-#%% Independence Assumption
-dw = durbin_watson(residuals)
+# 3%% Independence Assumption (Durbin-Watson Test)
+dw = sm.stats.durbin_watson(standardized_residuals)
 print(f'Durbin-Watson statistic: {dw}')
 
-#%% Normality Assumption
-stat, p = shapiro(residuals)
-print(f'Statistic: {stat}, p-value: {p}')
+#%% Plot residuals over time to visually inspect independence
+plt.plot(standardized_residuals)
+plt.xlabel('Index')
+plt.ylabel('Standardized Residuals')
+plt.title('Standardized Residuals vs. Index')
+plt.show()
 
-#%% Q-Q plot
-sm.qqplot(residuals, line='s')
+#%% 4. Normality Assumption
+# Histogram of standardized residuals
+plt.hist(standardized_residuals, bins=30, edgecolor='k')
+plt.xlabel('Standardized Residuals')
+plt.ylabel('Frequency')
+plt.title('Histogram of Standardized Residuals')
+plt.show()
+
+# Q-Q plot
+fig = plt.figure(figsize=(6, 6))
+stats.probplot(standardized_residuals, dist="norm", plot=plt)
 plt.title('Q-Q Plot')
 plt.show()
-#%% Plot histogram
-sns.histplot(residuals)
-plt.show() 
 
-# %%
+# Shapiro-Wilk test for normality
+stat, p = stats.shapiro(standardized_residuals)
+print(f'Statistic: {stat}, p-value: {p}')
